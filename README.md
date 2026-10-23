@@ -4,171 +4,180 @@
 
 <h1 align="center">php2shell</h1>
 <p align="center">
-  <strong>CVE-2026-109618 & CVE-2026-109619 — PHP Pre-Auth RCE Exploit & Detection Toolkit</strong>
+  <strong>CVE-2026-109618 & CVE-2026-109619 — RCE pré-autenticação no PHP: kit de exploração e detecção</strong>
 </p>
 <p align="center">
   <a href="https://github.com/ikow/php2shell-poc/stargazers"><img src="https://img.shields.io/github/stars/ikow/php2shell-poc?style=flat-square" alt="Stars"></a>
   <img src="https://img.shields.io/badge/CVSS-9.2%20Critical-red?style=flat-square" alt="CVSS 9.2">
-  <img src="https://img.shields.io/badge/PHP-5.4%E2%80%938.5-orange?style=flat-square" alt="Affected Versions">
-  <img src="https://img.shields.io/badge/Fixed-8.2.35%20%7C%208.3.36%20%7C%208.4.27%20%7C%208.5.12-green?style=flat-square" alt="Fixed Versions">
+  <img src="https://img.shields.io/badge/PHP-5.4%E2%80%938.5-orange?style=flat-square" alt="Versões afetadas">
+  <img src="https://img.shields.io/badge/Fixed-8.2.35%20%7C%208.3.36%20%7C%208.4.27%20%7C%208.5.12-green?style=flat-square" alt="Versões corrigidas">
   <img src="https://img.shields.io/badge/Exploits-3%20public%20%7C%202%20paid-blue?style=flat-square" alt="Exploits">
 </p>
 
 <p align="center">
-  <a href="#exploits">Exploits</a> · <a href="#detection-rules">Detection</a> · <a href="#quick-start">Lab</a> · <a href="https://qideng.substack.com/p/php2shell-dissecting-phps-critical">Writeup</a>
+  <a href="#exploits">Exploits</a> · <a href="#regras-de-deteccao">Detecção</a> · <a href="#inicio-rapido">Lab</a> · <a href="docs/MANUAL_VALIDACAO.md">Manual de validação</a> · <a href="https://qideng.substack.com/p/php2shell-dissecting-phps-critical">Writeup</a>
+</p>
+
+<p align="center">
+  <sub>🇧🇷 Português · <a href="README.en.md">🇬🇧 English (original)</a></sub>
 </p>
 
 ---
 
-Five independent RCE chains exploiting PHP's `session.upload_progress` and the Zend engine's OOM bailout. **14 years of vulnerable code** — PHP 5.4.0 (2012) through 8.5.11. Pre-auth. No application vulnerability required for some chains.
+Cinco cadeias independentes de RCE que exploram o `session.upload_progress` do PHP e o bailout por OOM do motor Zend. **14 anos de código vulnerável** — do PHP 5.4.0 (2012) ao 8.5.11. Pré-autenticação. Algumas cadeias não exigem nenhuma vulnerabilidade na aplicação.
 
-Impacts **78% of all websites** — including WordPress (43%), Joomla, Drupal, Laravel, Magento, and every default PHP installation.
+Afeta **78% de todos os sites** — incluindo WordPress (43%), Joomla, Drupal, Laravel, Magento e toda instalação PHP padrão.
 
-**Author:** [Qi Deng](https://github.com/ikow) &nbsp;|&nbsp; **Writeup:** [Substack](https://qideng.substack.com/p/php2shell-dissecting-phps-critical) &nbsp;|&nbsp; **Date:** 2026-10-21
+**Autor:** [Qi Deng](https://github.com/ikow) &nbsp;|&nbsp; **Writeup:** [Substack](https://qideng.substack.com/p/php2shell-dissecting-phps-critical) &nbsp;|&nbsp; **Data:** 2026-10-21
 
-## CVE Details
+> **Fork em português.** Este repositório é um fork do trabalho original de [Qi Deng (@ikow)](https://github.com/ikow/php2shell-poc), com o README traduzido e um [manual de validação](docs/MANUAL_VALIDACAO.md) adicionado. Toda a pesquisa e autoria original são de Qi Deng.
 
-| CVE | GHSA | CVSS | Description |
-|-----|------|------|-------------|
-| CVE-2026-109618 | [GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) | 9.2 | OOM → `longjmp()` leaves Zend engine state invalid → RCE |
-| CVE-2026-109619 | [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp) | 9.2 | Stale global state across FPM worker requests → UAF → RCE |
+## Detalhes das CVEs
 
-**Patch:** [Commit 3584a98](https://github.com/php/php-src/commit/3584a98bda) — 300 files changed across the Zend engine.
+| CVE | GHSA | CVSS | Descrição |
+|-----|------|------|-----------|
+| CVE-2026-109618 | [GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) | 9.2 | OOM → `longjmp()` deixa o estado do motor Zend inválido → RCE |
+| CVE-2026-109619 | [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp) | 9.2 | Estado global obsoleto entre requisições do worker FPM → UAF → RCE |
 
-## Attack Chains
+**Patch:** [Commit 3584a98](https://github.com/php/php-src/commit/3584a98bda) — 300 arquivos alterados no motor Zend.
 
-| Chain | Vector | Pre-auth | Conditions | SAPI |
-|-------|--------|:--------:|------------|------|
-| **A** | Session injection + LFI | Yes | App has any LFI sink | All |
-| **B** | var_destroy UAF → handler overwrite | No | App calls `unserialize()` | All |
-| **C** | Handler mismatch → `__destruct` | Yes | Two dirs with different serialize_handler | FPM |
-| **D** | OOM corruption → stale `EG()` | Yes | **None** — any endpoint | mod_php |
-| **E** | FPM session OOM → stale `BG()` | Yes | Producer: any `session_start()` endpoint; Consumer: **any** endpoint | FPM |
+## Cadeias de ataque
 
-Chain D is the most critical: **zero-dependency pre-auth RCE** against any Apache mod_php installation.
+| Cadeia | Vetor | Pré-auth | Condições | SAPI |
+|--------|-------|:--------:|-----------|------|
+| **A** | Injeção de sessão + LFI | Sim | App tem qualquer sink de LFI | Todos |
+| **B** | UAF em var_destroy → sobrescrita de handler | Não | App chama `unserialize()` | Todos |
+| **C** | Mismatch de handler → `__destruct` | Sim | Dois diretórios com serialize_handler diferente | FPM |
+| **D** | Corrupção por OOM → `EG()` obsoleto | Sim | **Nenhuma** — qualquer endpoint | mod_php |
+| **E** | OOM de sessão FPM → `BG()` obsoleto | Sim | Produtor: qualquer endpoint com `session_start()`; Consumidor: **qualquer** endpoint | FPM |
 
-Chain E is nearly as broad on FPM: the producer needs any endpoint that calls `session_start()` (near-universal — WordPress, Laravel, Joomla, Drupal all do), and the **consumer can be any PHP endpoint** — the `rfc1867` upload_progress handler runs during SAPI startup before application code. Verified: `nosession.php` (no `session_start()` in code) triggers 502 crash when consuming stale `BG(unserialize)` state.
+A cadeia D é a mais crítica: **RCE pré-autenticação sem nenhuma dependência** contra qualquer instalação Apache mod_php.
+
+A cadeia E é quase tão abrangente no FPM: o produtor precisa de qualquer endpoint que chame `session_start()` (praticamente universal — WordPress, Laravel, Joomla e Drupal todos chamam), e o **consumidor pode ser qualquer endpoint PHP** — o handler `rfc1867` do upload_progress roda durante a inicialização do SAPI, antes do código da aplicação. Verificado: `nosession.php` (sem `session_start()` no código) provoca crash 502 ao consumir o estado obsoleto de `BG(unserialize)`.
 
 ## Exploits
 
-Three RCE exploits (Chains A, B, C) are included in [`exploit/`](exploit/):
+Três exploits de RCE (cadeias A, B, C) estão incluídos em [`exploit/`](exploit/):
 
-| File | Chain | What It Does |
-|------|-------|-------------|
-| `chain_a_session_lfi.py` | A | Injects PHP code via upload filename → LFI includes session file → RCE |
-| `chain_b_uaf_rce.php` | B | var_destroy UAF → discovers `zif_system` via EG() → overwrites `var_dump` handler via `/proc/self/mem` → RCE |
-| `chain_c_mismatch_rce.py` | C | Pollutes FPM worker `PS(serializer)` → injects serialized object via filename → `__destruct` fires on decode failure → RCE |
+| Arquivo | Cadeia | O que faz |
+|---------|--------|-----------|
+| `chain_a_session_lfi.py` | A | Injeta código PHP pelo nome do arquivo de upload → LFI inclui o arquivo de sessão → RCE |
+| `chain_b_uaf_rce.php` | B | UAF em var_destroy → descobre `zif_system` via EG() → sobrescreve o handler de `var_dump` via `/proc/self/mem` → RCE |
+| `chain_c_mismatch_rce.py` | C | Polui o `PS(serializer)` do worker FPM → injeta objeto serializado pelo nome do arquivo → `__destruct` dispara na falha de decode → RCE |
 
-Chains D and E exploits are available to [paid subscribers](https://qideng.substack.com/p/php2shell-dissecting-phps-critical).
+Os exploits das cadeias D e E estão disponíveis para [assinantes pagos](https://qideng.substack.com/p/php2shell-dissecting-phps-critical).
 
 ```bash
-# Chain A: Session injection + LFI → RCE
-python3 exploit/chain_a_session_lfi.py --host TARGET --port 80 --command 'id'
+# Cadeia A: injeção de sessão + LFI → RCE
+python3 exploit/chain_a_session_lfi.py --host ALVO --port 80 --command 'id'
 
-# Chain B: var_destroy UAF → RCE (run on target or via uploaded webshell)
+# Cadeia B: UAF em var_destroy → RCE (rodar no alvo ou via webshell enviada)
 php exploit/chain_b_uaf_rce.php
 
-# Chain C: Handler mismatch → __destruct → RCE
-python3 exploit/chain_c_mismatch_rce.py --host TARGET --port 80 --command 'id'
+# Cadeia C: mismatch de handler → __destruct → RCE
+python3 exploit/chain_c_mismatch_rce.py --host ALVO --port 80 --command 'id'
 ```
 
-## Detection Rules
+## Regras de detecção
 
-Pre-built IDS / WAF / SIEM rules in [`detection/`](detection/):
+Regras prontas de IDS / WAF / SIEM em [`detection/`](detection/):
 
-| File | Format | Signatures |
-|------|--------|-----------|
-| `php2shell.rules` | Suricata / Snort | 13 rules — request, response, and recon |
-| `php2shell.yaml` | Sigma | 5 rules — web logs, process creation, file events |
-| `modsecurity.conf` | ModSecurity v2/v3 | 7 rules — drop-in for Apache/Nginx |
-| `php2shell.lua` | OpenResty Lua | Lightweight reverse proxy module |
+| Arquivo | Formato | Assinaturas |
+|---------|---------|-------------|
+| `php2shell.rules` | Suricata / Snort | 13 regras — requisição, resposta e reconhecimento |
+| `php2shell.yaml` | Sigma | 5 regras — logs web, criação de processo, eventos de arquivo |
+| `modsecurity.conf` | ModSecurity v2/v3 | 7 regras — plug-and-play para Apache/Nginx |
+| `php2shell.lua` | OpenResty Lua | Módulo leve para proxy reverso |
 
-**Fastest mitigation:** block `PHP_SESSION_UPLOAD_PROGRESS` in multipart POST bodies. Near-zero legitimate use, covers the primary attack vector for both CVEs.
+**Mitigação mais rápida:** bloquear `PHP_SESSION_UPLOAD_PROGRESS` em corpos de POST multipart. Uso legítimo praticamente nulo e cobre o vetor de ataque principal das duas CVEs.
 
-## Quick Start
+## Início rápido
 
 ```bash
 git clone https://github.com/ikow/php2shell-poc.git && cd php2shell-poc
 
-# Start the lab (PHP-FPM + nginx + Apache mod_php)
+# Subir o lab (PHP-FPM + nginx + Apache mod_php)
 cd lab && docker compose up -d
 
-# Verify each chain
+# Verificar cada cadeia
 python3 ../poc/verify_session_injection.py --target http://127.0.0.1:18080
 python3 ../poc/verify_handler_mismatch.py --target http://127.0.0.1:18080
 python3 ../poc/verify_oom_trigger.py --host 127.0.0.1 --port 18081
 python3 ../poc/verify_fpm_stale_state.py --target http://127.0.0.1:18080
 
-# Run an exploit
+# Rodar um exploit
 python3 ../exploit/chain_a_session_lfi.py --host 127.0.0.1 --port 18080 --command 'id'
 ```
 
-## Repository Structure
+> 📘 Para um passo a passo de como reproduzir a falha e confirmar que a versão/aplicação corrigida responde diferente, veja o **[Manual de validação](docs/MANUAL_VALIDACAO.md)**.
+
+## Estrutura do repositório
 
 ```
 php2shell-poc/
 ├── exploit/
-│   ├── chain_a_session_lfi.py        # RCE: session injection + LFI
-│   ├── chain_b_uaf_rce.php           # RCE: var_destroy UAF → handler overwrite
-│   └── chain_c_mismatch_rce.py       # RCE: handler mismatch → __destruct
+│   ├── chain_a_session_lfi.py        # RCE: injeção de sessão + LFI
+│   ├── chain_b_uaf_rce.php           # RCE: UAF em var_destroy → sobrescrita de handler
+│   └── chain_c_mismatch_rce.py       # RCE: mismatch de handler → __destruct
 ├── detection/
-│   ├── php2shell.rules               # Suricata / Snort IDS rules
-│   ├── php2shell.yaml                # Sigma SIEM detection rules
-│   ├── modsecurity.conf              # ModSecurity WAF rules
-│   └── php2shell.lua                 # OpenResty / Nginx Lua WAF module
+│   ├── php2shell.rules               # Regras de IDS Suricata / Snort
+│   ├── php2shell.yaml                # Regras de detecção SIEM (Sigma)
+│   ├── modsecurity.conf              # Regras de WAF ModSecurity
+│   └── php2shell.lua                 # Módulo WAF OpenResty / Nginx Lua
 ├── poc/
-│   ├── verify_session_injection.py   # Verify Chain A
-│   ├── verify_uaf_asan.php           # Verify Chain B (ASAN)
-│   ├── verify_handler_mismatch.py    # Verify Chain C
-│   ├── verify_oom_trigger.py         # Verify Chain D
-│   └── verify_fpm_stale_state.py     # Verify Chain E
+│   ├── verify_session_injection.py   # Verifica a cadeia A
+│   ├── verify_uaf_asan.php           # Verifica a cadeia B (ASAN)
+│   ├── verify_handler_mismatch.py    # Verifica a cadeia C
+│   ├── verify_oom_trigger.py         # Verifica a cadeia D
+│   └── verify_fpm_stale_state.py     # Verifica a cadeia E
 ├── lab/
 │   ├── docker-compose.yml            # PHP-FPM + nginx + Apache mod_php
-│   ├── setup.sh                      # One-click lab setup
-│   └── php.ini / php-apache.ini      # Vulnerable PHP configs
+│   ├── setup.sh                      # Setup do lab em um comando
+│   └── php.ini / php-apache.ini      # Configs PHP vulneráveis
 └── docs/
-    ├── ANALYSIS.md                   # Full technical analysis
-    └── substack_article.md           # Writeup source
+    ├── ANALYSIS.md                   # Análise técnica completa
+    ├── MANUAL_VALIDACAO.md           # Manual de validação (PT-BR)
+    └── substack_article.md           # Fonte do writeup
 ```
 
-## Mitigation
+## Mitigação
 
 ```ini
-; Immediate — reduces attack surface
+; Imediato — reduz a superfície de ataque
 session.upload_progress.enabled = Off
 session.use_only_cookies = On
 ```
 
-> **The only complete fix is patching PHP** to 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12+. The OOM corruption (Chain D) is in the Zend engine core — no INI setting fixes it.
+> **A única correção completa é atualizar o PHP** para 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 ou superior. A corrupção por OOM (cadeia D) está no núcleo do motor Zend — nenhuma configuração de INI resolve.
 
-## Downstream Impact
+## Impacto downstream
 
-Wiz has demonstrated pre-auth RCE on stock container images:
+A Wiz demonstrou RCE pré-autenticação em imagens de container padrão:
 
-| Platform | Vulnerable | Notes |
-|----------|:----------:|-------|
-| WordPress | Yes | Core doesn't use PHP sessions, but WooCommerce and many plugins do |
-| Joomla | Yes | Uses native PHP sessions by default |
-| Drupal | Yes | Uses native PHP sessions by default |
-| Magento | Yes | Vulnerable even in maintenance mode |
-| Laravel | Yes | `PendingBroadcast` is a known `__destruct` gadget |
+| Plataforma | Vulnerável | Observações |
+|------------|:----------:|-------------|
+| WordPress | Sim | O core não usa sessões PHP, mas o WooCommerce e muitos plugins usam |
+| Joomla | Sim | Usa sessões PHP nativas por padrão |
+| Drupal | Sim | Usa sessões PHP nativas por padrão |
+| Magento | Sim | Vulnerável mesmo em modo de manutenção |
+| Laravel | Sim | `PendingBroadcast` é um gadget `__destruct` conhecido |
 
-## References
+## Referências
 
 - [PHP Security Advisory](https://www.php.net/archive/2026.php)
 - [GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) — CVE-2026-109618
 - [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp) — CVE-2026-109619
-- [Patch commit 3584a98](https://github.com/php/php-src/commit/3584a98bda) — 300 files, Zend engine + extensions
-- [Cloudflare WAF coverage](https://blog.cloudflare.com/php-vulnerabilities-waf-protection/)
-- [Sansec analysis](https://sansec.io/research/php2shell) — PHPSESSID heap leak discovery
-- [Wiz downstream impact](https://www.wiz.io/blog/php2shell-php-rce)
-- [Corelight detection](https://github.com/corelight/php2shell-detect) — Zeek + Suricata community rules
+- [Commit do patch 3584a98](https://github.com/php/php-src/commit/3584a98bda) — 300 arquivos, motor Zend + extensões
+- [Cobertura do WAF da Cloudflare](https://blog.cloudflare.com/php-vulnerabilities-waf-protection/)
+- [Análise da Sansec](https://sansec.io/research/php2shell) — descoberta do vazamento de heap via PHPSESSID
+- [Impacto downstream pela Wiz](https://www.wiz.io/blog/php2shell-php-rce)
+- [Detecção da Corelight](https://github.com/corelight/php2shell-detect) — regras comunitárias Zeek + Suricata
 
-## Disclaimer
+## Aviso legal
 
-This repository is for **authorized security testing and educational purposes only**. Exploit code for Chains D and E (zero-dependency RCE) is available to [paid subscribers](https://qideng.substack.com/p/php2shell-dissecting-phps-critical) of the writeup.
+Este repositório destina-se **exclusivamente a testes de segurança autorizados e fins educacionais**. O código de exploração das cadeias D e E (RCE sem dependências) está disponível para [assinantes pagos](https://qideng.substack.com/p/php2shell-dissecting-phps-critical) do writeup.
 
-## License
+## Licença
 
 MIT
 
@@ -176,7 +185,7 @@ MIT
 
 <p align="center">
   <sub>
-    <b>Keywords:</b> php2shell, CVE-2026-109618, CVE-2026-109619, PHP RCE, PHP exploit, session.upload_progress,
+    <b>Palavras-chave:</b> php2shell, CVE-2026-109618, CVE-2026-109619, PHP RCE, PHP exploit, session.upload_progress,
     pre-auth RCE, PHP vulnerability, PHP session injection, PHP deserialization, PHP OOM, PHP memory corruption,
     use-after-free, GHSA-w8hw-w9fx-j79w, GHSA-6wmf-4rv5-p3rp, WordPress RCE, Joomla RCE, Drupal RCE,
     PHP security, WAF rules, Suricata rules, ModSecurity rules, IDS signatures, PHP 8.2.35, PHP 8.4.27,
